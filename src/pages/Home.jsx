@@ -1,16 +1,19 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   getAllCategories, searchCategories, 
   getAllProducts, getProductsByCategory, searchProducts 
 } from '../services/api';
 import { useCart } from '../context/CartContext';
-import { FaChevronLeft, FaChevronRight, FaSearch } from 'react-icons/fa';
+import { FaChevronLeft, FaChevronRight, FaSearch, FaSpinner } from 'react-icons/fa';
 
 const Home = () => {
   const { addToCart } = useCart();
   const scrollRef = useRef(null);
   
+  // Ref for the "End of List" element to trigger loading
+  const observerTarget = useRef(null);
+
   // --- States ---
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -22,15 +25,14 @@ const Home = () => {
   
   // Pagination States
   const [prodPage, setProdPage] = useState(0);
-  const [prodTotalPages, setProdTotalPages] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true); // Track if backend has more pages
   const [selectedCatId, setSelectedCatId] = useState(null); 
   
-  // Constants
   const PRODUCT_PAGE_SIZE = 12;
   const CATEGORY_FETCH_SIZE = 50; 
 
   // --- Image Optimizer Helper ---
-  // This helps fetch smaller images if the URL supports it
   const getOptimizedImageUrl = (url, width = 300) => {
     if (!url) return 'https://via.placeholder.com/300?text=No+Image';
     if (url.includes('unsplash.com')) return `${url}&w=${width}&q=80`;
@@ -42,7 +44,6 @@ const Home = () => {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        // Uses Search API if searching, otherwise Get All API
         const res = isSearching 
           ? await searchCategories(searchQuery, 0, CATEGORY_FETCH_SIZE)
           : await getAllCategories(0, CATEGORY_FETCH_SIZE);
@@ -52,12 +53,13 @@ const Home = () => {
     fetchCategories();
   }, [searchQuery, isSearching]);
 
-  // --- 2. Load Products ---
+  // --- 2. Load Products (Infinite Scroll Logic) ---
   useEffect(() => {
     const fetchProducts = async () => {
+      setLoading(true);
       try {
         let res;
-        // Determines which API to use based on state
+        // Determine which API to use
         if (isSearching) {
           res = await searchProducts(searchQuery, prodPage, PRODUCT_PAGE_SIZE);
         } else if (selectedCatId) {
@@ -65,13 +67,58 @@ const Home = () => {
         } else {
           res = await getAllProducts(prodPage, PRODUCT_PAGE_SIZE);
         }
-        setProducts(res.data.content || []);
-        setProdTotalPages(res.data.totalPages || 0);
-      } catch (err) { console.error("Prod Error", err); }
+
+        const newProducts = res.data.content || [];
+        const totalPages = res.data.totalPages || 0;
+
+        // If Page 0, overwrite. If Page > 0, append.
+        if (prodPage === 0) {
+          setProducts(newProducts);
+        } else {
+          setProducts(prev => [...prev, ...newProducts]);
+        }
+
+        // Check if we have reached the end
+        setHasMore(prodPage < totalPages - 1);
+
+      } catch (err) { 
+        console.error("Prod Error", err); 
+      } finally {
+        setLoading(false);
+      }
     };
+
     fetchProducts();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Only scroll to top if it's a completely new search/category (Page 0)
+    if (prodPage === 0) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    // eslint-disable-next-line
   }, [searchQuery, isSearching, prodPage, selectedCatId]);
+
+  // --- 3. Intersection Observer (The Infinite Scroll Trigger) ---
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMore && !loading) {
+          // Trigger next page
+          setProdPage(prevPage => prevPage + 1);
+        }
+      },
+      { threshold: 1.0 } // Trigger when 100% of the target is visible
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [hasMore, loading]);
+
 
   // --- Handlers ---
   const handleSearchSubmit = (e) => {
@@ -80,11 +127,13 @@ const Home = () => {
       setIsSearching(false);
       setSearchQuery('');
       setSelectedCatId(null);
+      setProducts([]); // Clear current view
     } else {
       setIsSearching(true);
       setSearchQuery(inputText);
       setSelectedCatId(null);
-      setProdPage(0);
+      setProdPage(0); // Reset to page 0
+      setProducts([]); // Clear current view to show loading
     }
   };
 
@@ -93,7 +142,8 @@ const Home = () => {
     setInputText('');
     setSearchQuery('');
     setSelectedCatId(id);
-    setProdPage(0);
+    setProdPage(0); // Reset to page 0
+    setProducts([]); // Clear current view
   };
 
   const scroll = (direction) => {
@@ -104,14 +154,8 @@ const Home = () => {
     }
   };
 
-  // --- Pagination (Blocks of 6) ---
-  const getPaginationGroup = () => {
-    let start = Math.floor(prodPage / 6) * 6;
-    return new Array(Math.min(6, prodTotalPages - start)).fill().map((_, idx) => start + idx);
-  };
-
   return (
-    <div className="pb-12 bg-white">
+    <div className="pb-12 bg-white min-h-screen">
       
       {/* --- Search Bar --- */}
       <div className="sticky top-0 z-40 bg-white py-4 shadow-sm">
@@ -170,7 +214,6 @@ const Home = () => {
                             : 'border-gray-100 bg-white hover:shadow-md'}`}
                     >
                         <div className="w-20 h-20 md:w-24 md:h-24 mx-auto mb-3 relative flex items-center justify-center">
-                           {/* OPTIMIZATION: Using lazy loading and resizing */}
                            <img 
                               loading="lazy"
                               decoding="async"
@@ -196,11 +239,10 @@ const Home = () => {
           </h2>
 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
-            {products.map(product => (
+            {products.map((product) => (
               <div key={product.id} className="bg-white border border-gray-100 rounded-xl p-3 hover:shadow-lg transition-all duration-300 flex flex-col justify-between h-full group">
                 <Link to={`/product/${product.id}`} className="block">
                   <div className="h-32 flex items-center justify-center mb-3 bg-gray-50 rounded-lg">
-                    {/* OPTIMIZATION: Using lazy loading and resizing */}
                     <img 
                       loading="lazy" 
                       decoding="async"
@@ -226,44 +268,24 @@ const Home = () => {
             ))}
           </div>
 
-          {products.length === 0 && (
+          {products.length === 0 && !loading && (
             <div className="text-center py-20 text-gray-400">
               <h3 className="text-xl">No products found.</h3>
             </div>
           )}
 
-          {prodTotalPages > 1 && (
-            <div className="mt-12 flex justify-center items-center gap-2">
-                <button 
-                    onClick={() => setProdPage(p => Math.max(0, p - 1))}
-                    disabled={prodPage === 0}
-                    className="w-10 h-10 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
-                >
-                    <FaChevronLeft size={12} />
-                </button>
+          {/* --- Infinite Scroll Trigger / Loader --- */}
+          <div ref={observerTarget} className="h-20 flex items-center justify-center w-full mt-8">
+             {loading && (
+                <div className="flex items-center gap-2 text-green-700 font-bold">
+                    <FaSpinner className="animate-spin" /> Loading more products...
+                </div>
+             )}
+             {!hasMore && products.length > 0 && (
+                <p className="text-gray-400 text-sm">You've reached the end of the list</p>
+             )}
+          </div>
 
-                {getPaginationGroup().map((item) => (
-                    <button
-                        key={item}
-                        onClick={() => setProdPage(item)}
-                        className={`w-10 h-10 rounded-lg text-sm font-bold border transition-colors cursor-pointer
-                        ${prodPage === item 
-                            ? 'bg-black text-white border-black' 
-                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                    >
-                        {item + 1}
-                    </button>
-                ))}
-
-                <button 
-                    onClick={() => setProdPage(p => Math.min(prodTotalPages - 1, p + 1))}
-                    disabled={prodPage === prodTotalPages - 1}
-                    className="w-10 h-10 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
-                >
-                    <FaChevronRight size={12} />
-                </button>
-            </div>
-          )}
         </div>
       </div>
     </div>
