@@ -232,7 +232,6 @@ const Home = () => {
             </div>
           )}
 
-          {/* --- Pagination (1-6 Style) --- */}
           {prodTotalPages > 1 && (
             <div className="mt-12 flex justify-center items-center gap-2">
                 <button 
