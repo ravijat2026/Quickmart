@@ -242,3 +242,32 @@ const Home = () => {
                     ADD
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+
+          {products.length === 0 && !prodLoading && (
+            <div className="text-center py-20 text-gray-400">
+              <h3 className="text-xl">No products found.</h3>
+            </div>
+          )}
+
+          {/* Infinite Scroll Loader */}
+          <div ref={observerTarget} className="h-20 flex items-center justify-center w-full mt-8">
+             {prodLoading && (
+                <div className="flex items-center gap-2 text-green-700 font-bold">
+                    <FaSpinner className="animate-spin" /> Loading...
+                </div>
+             )}
+             {!hasMore && products.length > 0 && (
+                <p className="text-gray-400 text-sm">You've reached the end of the list</p>
+             )}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Home;
