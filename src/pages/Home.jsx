@@ -213,7 +213,6 @@ const Home = () => {
                     </div>
                   ))
                 ) : (
-                  // 3. EMPTY STATE
                   <div className="p-4 text-gray-500 italic w-full text-center">No categories found.</div>
                 )}
             </div>
